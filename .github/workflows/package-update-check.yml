@@ -1,0 +1,75 @@
+name: Check for Package Updates
+
+on:
+  schedule:
+    - cron: '0 4 * * *'  # Run daily at 4am UTC
+  workflow_dispatch:  # Allow manual triggers
+
+env:
+  DIST_REPO: http://dl-cdn.alpinelinux.org/alpine/edge/community/
+  DIST_REPO_PACKAGES: qbittorrent-nox
+
+jobs:
+  check-updates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Check for package updates
+        id: check-updates
+        run: |
+          EXT_RELEASE=$(curl -sL "${DIST_REPO}x86_64/APKINDEX.tar.gz" | tar -xz -C /tmp \
+                     && awk '/^P:'"${DIST_REPO_PACKAGES}"'$/,/V:/' /tmp/APKINDEX | sed -n 2p | sed 's/^V://')
+          EXT_RELEASE_CLEAN=$(echo ${EXT_RELEASE} | sed 's/[~,%@+;:/ ]//g')
+          
+          # Get the current version from the latest release
+          CURRENT_VERSION=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+            grep -oP '"tag_name": "\K(.*)(?=")' | grep -oP '^[^-]+' || echo "0")
+          
+          echo "Current version: ${CURRENT_VERSION}"
+          echo "Latest package version: ${EXT_RELEASE}"
+          
+          # Compare versions and create issue if update is needed
+          if [ "${CURRENT_VERSION}" != "${EXT_RELEASE_CLEAN}" ]; then
+            echo "Update needed from ${CURRENT_VERSION} to ${EXT_RELEASE_CLEAN}"
+            echo "update_needed=true" >> $GITHUB_OUTPUT
+            echo "new_version=${EXT_RELEASE_CLEAN}" >> $GITHUB_OUTPUT
+          else
+            echo "No update needed"
+            echo "update_needed=false" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create Issue for Update
+        if: ${{ steps.check-updates.outputs.update_needed == 'true' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const newVersion = '${{ steps.check-updates.outputs.new_version }}';
+            
+            // Check if an issue for this version already exists
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'update'
+            });
+            
+            const existingIssue = issues.find(issue => 
+              issue.title.includes(newVersion)
+            );
+            
+            if (!existingIssue) {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Update to qBittorrent version ${newVersion}`,
+                body: `A new version of qBittorrent (${newVersion}) has been detected in the Alpine edge repository.
+                
+                This issue was created automatically by the package-update-check workflow.`,
+                labels: ['update', 'automated']
+              });
+              console.log(`Created new issue for version ${newVersion}`);
+            } else {
+              console.log(`Issue for version ${newVersion} already exists: #${existingIssue.number}`);
+            }

@@ -32,11 +32,9 @@ Find us at:
 [![GitHub Stars](https://img.shields.io/github/stars/linuxserver/docker-qbittorrent.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&logo=github)](https://github.com/linuxserver/docker-qbittorrent)
 [![GitHub Release](https://img.shields.io/github/release/linuxserver/docker-qbittorrent.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&logo=github)](https://github.com/linuxserver/docker-qbittorrent/releases)
 [![GitHub Package Repository](https://img.shields.io/static/v1.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=linuxserver.io&message=GitHub%20Package&logo=github)](https://github.com/linuxserver/docker-qbittorrent/packages)
-[![GitLab Container Registry](https://img.shields.io/static/v1.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=linuxserver.io&message=GitLab%20Registry&logo=gitlab)](https://gitlab.com/linuxserver.io/docker-qbittorrent/container_registry)
-[![Quay.io](https://img.shields.io/static/v1.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=linuxserver.io&message=Quay.io)](https://quay.io/repository/linuxserver.io/qbittorrent)
 [![Docker Pulls](https://img.shields.io/docker/pulls/linuxserver/qbittorrent.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=pulls&logo=docker)](https://hub.docker.com/r/linuxserver/qbittorrent)
 [![Docker Stars](https://img.shields.io/docker/stars/linuxserver/qbittorrent.svg?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=stars&logo=docker)](https://hub.docker.com/r/linuxserver/qbittorrent)
-[![Jenkins Build](https://img.shields.io/jenkins/build?labelColor=555555&logoColor=ffffff&style=for-the-badge&jobUrl=https%3A%2F%2Fci.linuxserver.io%2Fjob%2FDocker-Pipeline-Builders%2Fjob%2Fdocker-qbittorrent%2Fjob%2Fmaster%2F&logo=jenkins)](https://ci.linuxserver.io/job/Docker-Pipeline-Builders/job/docker-qbittorrent/job/master/)
+[![GitHub Actions Status](https://img.shields.io/github/actions/workflow/status/linuxserver/docker-qbittorrent/docker-build.yml?branch=master&labelColor=555555&logoColor=ffffff&style=for-the-badge&logo=github-actions&label=build)](https://github.com/linuxserver/docker-qbittorrent/actions/workflows/docker-build.yml)
 [![LSIO CI](https://img.shields.io/badge/dynamic/yaml?color=94398d&labelColor=555555&logoColor=ffffff&style=for-the-badge&label=CI&query=CI&url=https%3A%2F%2Fci-tests.linuxserver.io%2Flinuxserver%2Fqbittorrent%2Flatest%2Fci-status.yml)](https://ci-tests.linuxserver.io/linuxserver/qbittorrent/latest/index.html)
 
 The [Qbittorrent](https://www.qbittorrent.org/) project aims to provide an open-source software alternative to µTorrent. qBittorrent is based on the Qt toolkit and libtorrent-rasterbar library.
@@ -107,7 +105,7 @@ To help you get started creating a container from this image you can either use 
 ---
 services:
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:latest
+    image: ghcr.io/linuxserver/qbittorrent:latest
     container_name: qbittorrent
     environment:
       - PUID=1000
@@ -141,7 +139,7 @@ docker run -d \
   -v /path/to/qbittorrent/appdata:/config \
   -v /path/to/downloads:/downloads `#optional` \
   --restart unless-stopped \
-  lscr.io/linuxserver/qbittorrent:latest
+  ghcr.io/linuxserver/qbittorrent:latest
 ```
 
 ## Parameters
@@ -275,7 +273,7 @@ Below are the instructions for updating containers:
 * Update the image:
 
     ```bash
-    docker pull lscr.io/linuxserver/qbittorrent:latest
+    docker pull ghcr.io/linuxserver/qbittorrent:latest
     ```
 
 * Stop the running container:
@@ -312,13 +310,13 @@ cd docker-qbittorrent
 docker build \
   --no-cache \
   --pull \
-  -t lscr.io/linuxserver/qbittorrent:latest .
+  -t ghcr.io/linuxserver/qbittorrent:latest .
 ```
 
-The ARM variants can be built on x86_64 hardware and vice versa using `lscr.io/linuxserver/qemu-static`
+The ARM variants can be built on x86_64 hardware and vice versa using `ghcr.io/linuxserver/qemu-static`
 
 ```bash
-docker run --rm --privileged lscr.io/linuxserver/qemu-static --reset
+docker run --rm --privileged ghcr.io/linuxserver/qemu-static --reset
 ```
 
 Once registered you can define the dockerfile to use with `-f Dockerfile.aarch64`.

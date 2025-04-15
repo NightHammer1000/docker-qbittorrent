@@ -1,0 +1,282 @@
+name: Build and Publish qBittorrent Docker Images
+
+on:
+  push:
+    branches:
+      - master
+    paths-ignore:
+      - '**.md'
+      - '.github/**'
+      - '!.github/workflows/docker-build.yml'
+  pull_request:
+    branches:
+      - master
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sundays at midnight
+  workflow_dispatch:  # Allow manual triggers
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  CONTAINER_NAME: qbittorrent
+  BUILD_VERSION_ARG: QBITTORRENT_VERSION
+  DIST_REPO: http://dl-cdn.alpinelinux.org/alpine/edge/community/
+  DIST_REPO_PACKAGES: qbittorrent-nox
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      ext_release: ${{ steps.set-ext-release.outputs.ext_release }}
+      ext_release_clean: ${{ steps.set-ext-release.outputs.ext_release_clean }}
+      version_tag: ${{ steps.set-version.outputs.version_tag }}
+      build_date: ${{ steps.set-build-date.outputs.build_date }}
+      package_tag: ${{ steps.set-package-tag.outputs.package_tag }}
+      ls_tag_number: ${{ steps.set-ls-tag.outputs.ls_tag_number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get latest Alpine package version
+        id: set-ext-release
+        run: |
+          EXT_RELEASE=$(curl -sL "${DIST_REPO}x86_64/APKINDEX.tar.gz" | tar -xz -C /tmp \
+                     && awk '/^P:'"${DIST_REPO_PACKAGES}"'$/,/V:/' /tmp/APKINDEX | sed -n 2p | sed 's/^V://')
+          EXT_RELEASE_CLEAN=$(echo ${EXT_RELEASE} | sed 's/[~,%@+;:/ ]//g')
+          echo "ext_release=${EXT_RELEASE}" >> $GITHUB_OUTPUT
+          echo "ext_release_clean=${EXT_RELEASE_CLEAN}" >> $GITHUB_OUTPUT
+
+      - name: Set build date
+        id: set-build-date
+        run: echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      - name: Set package tag
+        id: set-package-tag
+        run: |
+          if [ -e package_versions.txt ]; then
+            echo "package_tag=$(md5sum package_versions.txt | cut -c1-8)" >> $GITHUB_OUTPUT
+          else
+            echo "package_tag=none" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Set LS tag number
+        id: set-ls-tag
+        run: |
+          # Check if we have an existing release
+          LATEST_RELEASE=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | \
+            grep -oP '"tag_name": "\K(.*)(?=")' | grep -o '[0-9]*$' || echo "1")
+          if [ -z "$LATEST_RELEASE" ]; then
+            LATEST_RELEASE="1"
+          fi
+          echo "ls_tag_number=${LATEST_RELEASE}" >> $GITHUB_OUTPUT
+
+      - name: Set version tag
+        id: set-version
+        run: |
+          VERSION_TAG="${{ steps.set-ext-release.outputs.ext_release_clean }}-ls${{ steps.set-ls-tag.outputs.ls_tag_number }}"
+          echo "version_tag=${VERSION_TAG}" >> $GITHUB_OUTPUT
+
+  test:
+    runs-on: ubuntu-latest
+    needs: prepare
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          severity: error
+
+  build-x86:
+    runs-on: ubuntu-latest
+    needs: [prepare, test]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the GitHub Container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata for amd64
+        id: meta-amd64
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=amd64-latest
+            type=raw,value=amd64-${{ needs.prepare.outputs.version_tag }}
+
+      - name: Build and push amd64 Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-amd64.outputs.tags }}
+          labels: ${{ steps.meta-amd64.outputs.labels }}
+          platforms: linux/amd64
+          build-args: |
+            BUILD_DATE=${{ needs.prepare.outputs.build_date }}
+            VERSION=${{ needs.prepare.outputs.version_tag }}
+            ${{ env.BUILD_VERSION_ARG }}=${{ needs.prepare.outputs.ext_release }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  build-arm64:
+    runs-on: ubuntu-latest
+    needs: [prepare, test]
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to the GitHub Container registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata for arm64v8
+        id: meta-arm64
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=arm64v8-latest
+            type=raw,value=arm64v8-${{ needs.prepare.outputs.version_tag }}
+
+      - name: Build and push arm64v8 Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.aarch64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-arm64.outputs.tags }}
+          labels: ${{ steps.meta-arm64.outputs.labels }}
+          platforms: linux/arm64
+          build-args: |
+            BUILD_DATE=${{ needs.prepare.outputs.build_date }}
+            VERSION=${{ needs.prepare.outputs.version_tag }}
+            ${{ env.BUILD_VERSION_ARG }}=${{ needs.prepare.outputs.ext_release }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  manifest:
+    runs-on: ubuntu-latest
+    needs: [prepare, build-x86, build-arm64]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Log in to the GitHub Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push manifest for latest
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          platforms: linux/amd64,linux/arm64
+          no-build: true
+          provenance: false
+
+      - name: Create and push manifest for version
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.prepare.outputs.version_tag }}
+          platforms: linux/amd64,linux/arm64
+          no-build: true
+          provenance: false
+
+  update-release:
+    runs-on: ubuntu-latest
+    needs: [prepare, manifest]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.prepare.outputs.version_tag }}
+          name: ${{ needs.prepare.outputs.version_tag }}
+          body: |
+            **LinuxServer Changes:**
+            * Docker image updated to version ${{ needs.prepare.outputs.version_tag }}
+            
+            **Remote Changes:**
+            * Updated to qBittorrent version ${{ needs.prepare.outputs.ext_release }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+
+  update-packagefile:
+    runs-on: ubuntu-latest
+    needs: [prepare, build-x86]
+    if: github.event_name != 'pull_request'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pull Docker image and extract package versions
+        run: |
+          TEMPDIR=$(mktemp -d)
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64-${{ needs.prepare.outputs.version_tag }}
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock:ro \
+            -v ${TEMPDIR}:/tmp \
+            ghcr.io/anchore/syft:latest \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:amd64-${{ needs.prepare.outputs.version_tag }} -o table=/tmp/package_versions.txt
+          NEW_PACKAGE_TAG=$(md5sum ${TEMPDIR}/package_versions.txt | cut -c1-8)
+          
+          if [ "$NEW_PACKAGE_TAG" != "${{ needs.prepare.outputs.package_tag }}" ]; then
+            cp ${TEMPDIR}/package_versions.txt ./package_versions.txt
+            git config user.name "GitHub Actions Bot"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add package_versions.txt
+            git commit -m 'Bot Updating Package Versions'
+            git push
+          fi
